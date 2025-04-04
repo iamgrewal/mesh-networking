@@ -1,0 +1,132 @@
+name: ShellCheck
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/**'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run ShellCheck
+        id: shellcheck
+        run: |
+          apt-get update -y && apt-get install -y shellcheck
+          mkdir -p .github/workflows/fixes
+          
+          # Run shellcheck on all scripts and capture output
+          shellcheck_output=$(shellcheck --format=json scripts/*.sh 2>/dev/null || true)
+          
+          # Check if there are any errors
+          if [[ -n "$shellcheck_output" ]]; then
+            echo "ShellCheck found issues. Analyzing and attempting to fix..."
+            echo "$shellcheck_output" > .github/workflows/fixes/shellcheck_issues.json
+            
+            # Process each file with issues
+            for file in $(echo "$shellcheck_output" | jq -r '.[].file' | sort -u); do
+              echo "Processing $file..."
+              
+              # Get issues for this file
+              file_issues=$(echo "$shellcheck_output" | jq -r ".[] | select(.file == \"$file\")")
+              
+              # Create a backup of the original file
+              cp "$file" "${file}.bak"
+              
+              # Process each issue
+              echo "$file_issues" | jq -c '.' | while read -r issue; do
+                level=$(echo "$issue" | jq -r '.level')
+                line=$(echo "$issue" | jq -r '.line')
+                code=$(echo "$issue" | jq -r '.code')
+                message=$(echo "$issue" | jq -r '.message')
+                
+                echo "Issue in $file at line $line: $message (code: $code)"
+                
+                # Attempt to fix common issues
+                case "$code" in
+                  SC2006) # Use $(...) instead of backticks
+                    sed -i "${line}s/\`/$(/g; ${line}s/\`/)/g" "$file"
+                    echo "Fixed: Replaced backticks with \$()"
+                    ;;
+                  SC2086) # Double quote to prevent globbing and word splitting
+                    sed -i "${line}s/\$\([^)]*\)/\$(\"\1\")/g" "$file"
+                    echo "Fixed: Added double quotes around variable expansions"
+                    ;;
+                  SC2148) # Tips depend on target shell and yours is unknown
+                    # Add shebang if missing
+                    if ! grep -q "^#!/bin/bash" "$file"; then
+                      sed -i "1i#!/bin/bash" "$file"
+                      echo "Fixed: Added shebang line"
+                    fi
+                    ;;
+                  SC2154) # var is referenced but not assigned
+                    # This is harder to fix automatically, just log it
+                    echo "Warning: Variable referenced but not assigned - manual fix required"
+                    ;;
+                  SC2164) # Use cd ... || exit in case cd fails
+                    sed -i "${line}s/cd \([^;]*\)/cd \1 || exit 1/g" "$file"
+                    echo "Fixed: Added error handling for cd command"
+                    ;;
+                  SC2181) # Check exit code directly with e.g. 'if mycmd;', not indirectly with $?
+                    sed -i "${line}s/if \[ \$? -eq 0 \]/if /g" "$file"
+                    echo "Fixed: Simplified exit code checking"
+                    ;;
+                  *) # For other issues, just log them
+                    echo "No automatic fix available for this issue"
+                    ;;
+                esac
+              done
+              
+              # Run shellcheck again on the fixed file
+              fixed_issues=$(shellcheck --format=json "$file" 2>/dev/null || true)
+              
+              # If there are still issues, restore the backup
+              if [[ -n "$fixed_issues" ]]; then
+                echo "Some issues could not be fixed automatically. Restoring original file."
+                mv "${file}.bak" "$file"
+              else
+                echo "All issues fixed in $file"
+                rm "${file}.bak"
+              fi
+            done
+            
+            # Final check
+            final_issues=$(shellcheck --format=json scripts/*.sh 2>/dev/null || true)
+            if [[ -n "$final_issues" ]]; then
+              echo "ShellCheck still found issues after fixes:"
+              echo "$final_issues" | jq -r '.[] | "\(.file):\(.line):\(.level):\(.code):\(.message)"'
+              echo "::set-output name=has_errors::true"
+            else
+              echo "All issues fixed successfully!"
+              echo "::set-output name=has_errors::false"
+            fi
+          else
+            echo "No ShellCheck issues found."
+            echo "::set-output name=has_errors::false"
+          fi
+
+      - name: Commit fixes
+        if: steps.shellcheck.outputs.has_errors == 'false'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add scripts/*.sh
+          git commit -m "Fix shell script issues detected by ShellCheck" || echo "No changes to commit"
+          git push
+
+      - name: Fail if errors remain
+        if: steps.shellcheck.outputs.has_errors == 'true'
+        run: |
+          echo "ShellCheck found errors that could not be fixed automatically."
+          echo "Please fix the issues manually and try again."
+          exit 1 
