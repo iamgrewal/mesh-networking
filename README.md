@@ -44,23 +44,37 @@ The network consists of three main segments:
    cd mesh-networking
    ```
 
-2. Run the setup script:
+2. Rename network interfaces (optional but recommended):
+   ```bash
+   sudo ./scripts/network_rename.sh
+   ```
+
+3. Run the setup script:
    ```bash
    sudo ./scripts/mesh-setup.sh
    ```
 
-3. Validate the configuration:
+4. Validate the configuration:
    ```bash
    sudo ./scripts/validate-network.sh
    ```
 
 ## Scripts
 
+### network_rename.sh
+- Interactive interface renaming utility
+- Displays interface information including MAC addresses and speeds
+- Creates persistent systemd .link files for renaming
+- Backs up existing configuration
+- Requires reboot to apply changes
+
 ### mesh-setup.sh
 - Initial network configuration
 - OVS bridge setup
 - FRR configuration
 - VLAN configuration
+- Supports dry-run and force modes
+- Includes backup functionality
 
 ### validate-network.sh
 - Validates network interfaces
@@ -96,46 +110,45 @@ The network consists of three main segments:
    - Use consistent VLAN IDs across all nodes
    - Set appropriate MTU values
    - Configure proper interface bonding
+   - Use consistent interface naming across all nodes
 
 2. Open vSwitch
    - Enable RSTP on all bridges
-   - Set appropriate priorities
-   - Configure proper aging time
+   - Set appropriate path costs
+   - Configure native-untagged VLAN mode for Ceph interfaces
 
 3. FRRouting
-   - Use correct NET ID format
-   - Set appropriate timers
-   - Enable integrated configuration
+   - Enable fabricd daemon
+   - Configure proper NET IDs
+   - Set appropriate hello intervals
+   - Use passive interfaces for loopback
 
-4. Security
-   - Run scripts as root only
-   - Validate all inputs
-   - Create backups before changes
+4. Interface Renaming
+   - Use the network_rename.sh script for consistent naming
+   - Choose meaningful prefixes (eth, net, etc.)
+   - Consider interface speeds when ordering
+   - Back up configurations before making changes
 
 ## Troubleshooting
 
 1. Network Issues
-   - Check interface status
-   - Verify VLAN configuration
-   - Test connectivity between nodes
+   - Check interface status with `ip link show`
+   - Verify OVS bridges with `ovs-vsctl show`
+   - Test connectivity with `ping` and `traceroute`
 
-2. OVS Problems
-   - Check bridge status
-   - Verify RSTP configuration
-   - Monitor port states
+2. FRR Issues
+   - Check FRR status with `systemctl status frr`
+   - Verify FRR configuration with `vtysh -c "show running-config"`
+   - Check FRR logs with `journalctl -u frr`
 
-3. FRR Issues
-   - Check service status
-   - Verify configuration
-   - Monitor routing tables
+3. Interface Renaming Issues
+   - Check .link files in `/etc/systemd/network/`
+   - Verify MAC addresses with `ip link show`
+   - Check logs at `/var/log/network-rename.log`
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
@@ -147,6 +160,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgments
 
-- Proxmox VE team
-- Open vSwitch community
-- FRRouting community 
+- Proxmox VE Community
+- Open vSwitch Project
+- FRRouting Project 
