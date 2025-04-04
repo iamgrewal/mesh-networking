@@ -19,14 +19,10 @@ LOG_FILE="/var/log/mesh-setup.log"
 
 # Configuration variables
 declare -A NETWORK_CONFIG=(
-    ["PUBLIC_NETWORK"]="192.168.51.0/24"
-    ["CLUSTER_NETWORK"]="10.55.10.0/24"
-    ["CEPH_NETWORK"]="10.60.10.0/24"
-    ["PVECM_NETWORK"]="10.50.10.0/24"
-    ["MTU"]="9000"
     ["VLAN_CLUSTER"]="55"
     ["VLAN_CEPH"]="60"
     ["VLAN_PVECM"]="50"
+    ["MTU"]="9000"
 )
 
 # Function to log messages
@@ -37,106 +33,104 @@ log_message() {
     echo -e "${timestamp} [${level}] ${message}" | tee -a "$LOG_FILE"
 }
 
+# Function to validate IP address format and range
+validate_ip() {
+    local ip=$1
+    local IFS='.'
+    read -ra octets <<< "$ip"
+    [[ ${#octets[@]} -eq 4 ]] || return 1
+    for octet in "${octets[@]}"; do
+        [[ "$octet" =~ ^[0-9]+$ ]] && (( octet >= 0 && octet <= 255 )) || return 1
+    done
+    return 0
+}
+
+# Function to validate hostname
+validate_hostname() {
+    local hostname=$1
+    if [[ ! "$hostname" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$ ]]; then
+        log_message "ERROR" "Invalid hostname format: $hostname"
+        return 1
+    fi
+    return 0
+}
+
 # Function to validate network interface
 validate_interface() {
     local iface=$1
     if ! ip link show "$iface" &>/dev/null; then
-        log_message "ERROR" "Interface $iface does not exist"
+        log_message "ERROR" "Interface $iface not found"
         return 1
     fi
     return 0
 }
 
-# Function to validate IP address
-validate_ip() {
-    local ip=$1
-    if ! [[ $ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-        log_message "ERROR" "Invalid IP address format: $ip"
-        return 1
+# Function to validate OVS installation
+validate_ovs() {
+    command -v ovs-vsctl >/dev/null || {
+        log_message "ERROR" "ovs-vsctl not found. Make sure Open vSwitch is installed properly."
+        exit 1
+    }
+}
+
+# Function to collect node information
+collect_node_info() {
+    log_message "INFO" "Collecting node information"
+    
+    # Get hostname
+    read -rp "Enter node hostname: " NODE_HOSTNAME
+    validate_hostname "$NODE_HOSTNAME" || exit 1
+    
+    # Get node ID
+    read -rp "Enter node ID (1-255): " NODE_ID
+    if ! [[ "$NODE_ID" =~ ^[0-9]+$ ]] || (( NODE_ID < 1 || NODE_ID > 255 )); then
+        log_message "ERROR" "Invalid node ID. Must be between 1 and 255"
+        exit 1
     fi
-    return 0
-}
-
-# Function to validate node ID
-validate_node_id() {
-    local node_id=$1
-    if ! [[ $node_id =~ ^[0-9]{1,3}$ ]] || ((node_id < 90 || node_id > 94)); then
-        log_message "ERROR" "Invalid node ID (must be 90-94): $node_id"
-        return 1
-    fi
-    return 0
-}
-
-# Function to backup configuration files
-backup_config() {
-    local timestamp=$(date +%Y%m%d_%H%M%S)
-    local backup_dir="/etc/network/backups/${timestamp}"
     
-    mkdir -p "$backup_dir"
-    cp /etc/network/interfaces "$backup_dir/"
-    cp /etc/frr/frr.conf "$backup_dir/" 2>/dev/null || true
+    # Get network interfaces
+    read -rp "Enter public network interface (e.g., eth0): " PUB_IFACE
+    validate_interface "$PUB_IFACE" || exit 1
     
-    log_message "INFO" "Configuration backed up to $backup_dir"
-}
-
-# Function to list available network interfaces
-list_interfaces() {
-    log_message "INFO" "Available network interfaces:"
-    ip -br link show | awk '{print "  - "$1}' | tee -a "$LOG_FILE"
-}
-
-# Function to get user input with validation
-get_user_input() {
-    local prompt=$1
-    local var_name=$2
-    local default=$3
-    local is_required=${4:-true}
-    local validation_func=${5:-}
+    read -rp "Enter PVECM network interface (e.g., eth1): " PVECM_IFACE
+    validate_interface "$PVECM_IFACE" || exit 1
     
-    while true; do
-        read -rp "$prompt" input
-        input=${input:-$default}
-        
-        if [[ -z "$input" ]] && [[ "$is_required" == "true" ]]; then
-            log_message "ERROR" "Input is required"
-            continue
-        fi
-        
-        if [[ -n "$validation_func" ]] && ! $validation_func "$input"; then
-            continue
-        fi
-        
-        eval "$var_name='$input'"
-        break
-    done
+    read -rp "Enter Ceph network interface (e.g., eth2): " CEPH_IFACE
+    validate_interface "$CEPH_IFACE" || exit 1
+    
+    # Get IP addresses
+    read -rp "Enter public network IP (e.g., 192.168.1.10): " PUB_IP
+    validate_ip "$PUB_IP" || exit 1
+    
+    read -rp "Enter PVECM network IP (e.g., 10.50.10.10): " PVECM_IP
+    validate_ip "$PVECM_IP" || exit 1
+    
+    read -rp "Enter Ceph network IP (e.g., 10.60.10.10): " CEPH_IP
+    validate_ip "$CEPH_IP" || exit 1
+    
+    log_message "INFO" "Node information collected successfully"
 }
 
-# Main setup function
+# Function to setup mesh network
 setup_mesh_network() {
-    log_message "INFO" "Starting mesh network setup"
+    log_message "INFO" "Setting up mesh network"
     
-    # List available interfaces
-    list_interfaces
+    # Set hostname
+    echo "$NODE_HOSTNAME" > /etc/hostname
+    hostnamectl set-hostname "$NODE_HOSTNAME"
+    log_message "INFO" "Hostname set to $NODE_HOSTNAME"
     
-    # Get node information
-    get_user_input "Enter node hostname: " NODE_HOSTNAME "" true
-    get_user_input "Enter node ID (90-94): " NODE_ID "" true validate_node_id
-    
-    # Get interface information
-    get_user_input "Enter public interface name (eth1): " PUBLIC_IFACE "eth1" true validate_interface
-    get_user_input "Enter Ceph interface name (eth3): " CEPH_IFACE "eth3" true validate_interface
-    get_user_input "Enter PVECM interface name (eth2): " PVECM_IFACE "eth2" true validate_interface
-    
-    # Backup existing configuration
-    backup_config
-    
-    # Generate network configuration
+    # Create network configuration
     generate_network_config
     
-    # Apply configuration
-    apply_network_config
+    # Apply network configuration
+    ifreload -a
     
-    log_message "INFO" "Mesh network setup completed successfully"
+    # Enable and start FRR service
+    systemctl enable frr.service
+    systemctl start frr.service
+    
+    log_message "INFO" "Mesh network setup completed"
 }
 
 # Function to generate network configuration
@@ -151,14 +145,14 @@ generate_network_config() {
 auto lo
 iface lo inet loopback
 
-auto ${PUBLIC_IFACE}
-iface ${PUBLIC_IFACE} inet manual
+auto ${PUB_IFACE}
+iface ${PUB_IFACE} inet manual
 
 auto vmbr0
 iface vmbr0 inet static
     address ${node_ip_public}/24
     gateway 192.168.51.1
-    bridge_ports ${PUBLIC_IFACE}
+    bridge_ports ${PUB_IFACE}
     bridge_stp off
     bridge_fd 0
 
@@ -261,20 +255,6 @@ router openfabric 1
 EOF
 
     log_message "INFO" "Network configuration generated"
-}
-
-# Function to apply network configuration
-apply_network_config() {
-    # Enable FRR daemon
-    sed -i 's/^fabricd=no/fabricd=yes/' /etc/frr/daemons
-    
-    # Reload network configuration
-    ifreload -a
-    
-    # Restart FRR service
-    systemctl restart frr.service
-    
-    log_message "INFO" "Network configuration applied"
 }
 
 # Main execution
