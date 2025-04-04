@@ -44,22 +44,36 @@ The network consists of three main segments:
    cd mesh-networking
    ```
 
-2. Rename network interfaces (optional but recommended):
+2. Use the interactive menu to run scripts:
+   ```bash
+   sudo ./scripts/mesh-menu.sh
+   ```
+
+   Or run individual scripts:
+
+3. Rename network interfaces (optional but recommended):
    ```bash
    sudo ./scripts/network_rename.sh
    ```
 
-3. Run the setup script:
+4. Run the setup script:
    ```bash
    sudo ./scripts/mesh-setup.sh
    ```
 
-4. Validate the configuration:
+5. Validate the configuration:
    ```bash
    sudo ./scripts/validate-network.sh
    ```
 
 ## Scripts
+
+### mesh-menu.sh
+- Interactive menu for running all mesh networking scripts
+- Provides a user-friendly interface for script execution
+- Includes options for installing network testing tools
+- Displays real-time output from script execution
+- Handles errors gracefully with clear feedback
 
 ### network_rename.sh
 - Interactive interface renaming utility
@@ -86,6 +100,28 @@ The network consists of three main segments:
 - Restores previous configuration
 - Cleans up OVS bridges
 - Reverts FRR settings
+
+## Using the Interactive Menu
+
+The `mesh-menu.sh` script provides a convenient way to run all the mesh networking scripts from a single interface:
+
+1. Run the menu script:
+   ```bash
+   sudo ./scripts/mesh-menu.sh
+   ```
+
+2. Select an option from the menu:
+   - Option 1: Run Mesh Setup Script
+   - Option 2: Run Network Interface Rename Script
+   - Option 3: Run Network Validation Script
+   - Option 4: Run Rollback Script
+   - Option 5: Install Network Testing Tools
+   - Option 6: Run Network Test
+   - Option 0: Exit
+
+3. Follow the on-screen instructions for each option.
+
+The menu provides real-time feedback and ensures proper execution of each script with appropriate error handling.
 
 ## Configuration
 
@@ -145,6 +181,11 @@ The network consists of three main segments:
    - Check .link files in `/etc/systemd/network/`
    - Verify MAC addresses with `ip link show`
    - Check logs at `/var/log/network-rename.log`
+
+4. Menu Script Issues
+   - Ensure all scripts are executable with `chmod +x scripts/*.sh`
+   - Check for proper permissions with `ls -la scripts/`
+   - Verify script paths with `which mesh-menu.sh`
 
 ## Contributing
 
