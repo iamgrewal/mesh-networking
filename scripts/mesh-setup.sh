@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Version: 1.0.1
-# Author: mesh-networking
-# Date: 2024-04-04
+# Author: Jatinder Grewal <jgrewal@po1.me>
+# Date: 2025-04-04
 # Purpose: Initial setup script for Proxmox VE mesh network with Ceph
 # Dependencies: openvswitch-switch, frr, ceph
 
