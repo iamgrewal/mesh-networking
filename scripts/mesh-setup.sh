@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Version: 1.0.0
+# Version: 1.0.1
 # Author: mesh-networking
 # Date: 2024-04-04
 # Purpose: Initial setup script for Proxmox VE mesh network with Ceph
@@ -22,9 +22,11 @@ declare -A NETWORK_CONFIG=(
     ["PUBLIC_NETWORK"]="192.168.51.0/24"
     ["CLUSTER_NETWORK"]="10.55.10.0/24"
     ["CEPH_NETWORK"]="10.60.10.0/24"
+    ["PVECM_NETWORK"]="10.50.10.0/24"
     ["MTU"]="9000"
     ["VLAN_CLUSTER"]="55"
     ["VLAN_CEPH"]="60"
+    ["VLAN_PVECM"]="50"
 )
 
 # Function to log messages
@@ -121,8 +123,9 @@ setup_mesh_network() {
     get_user_input "Enter node ID (90-94): " NODE_ID "" true validate_node_id
     
     # Get interface information
-    get_user_input "Enter public interface name: " PUBLIC_IFACE "" true validate_interface
-    get_user_input "Enter Ceph interface name: " CEPH_IFACE "" true validate_interface
+    get_user_input "Enter public interface name (eth1): " PUBLIC_IFACE "eth1" true validate_interface
+    get_user_input "Enter Ceph interface name (eth3): " CEPH_IFACE "eth3" true validate_interface
+    get_user_input "Enter PVECM interface name (eth2): " PVECM_IFACE "eth2" true validate_interface
     
     # Backup existing configuration
     backup_config
@@ -141,6 +144,7 @@ generate_network_config() {
     local node_ip_public="192.168.51.${NODE_ID}"
     local node_ip_cluster="10.55.10.${NODE_ID}"
     local node_ip_ceph="10.60.10.${NODE_ID}"
+    local node_ip_pvecm="10.50.10.${NODE_ID}"
     
     # Generate interfaces configuration
     cat << EOF > /etc/network/interfaces
@@ -157,6 +161,30 @@ iface vmbr0 inet static
     bridge_ports ${PUBLIC_IFACE}
     bridge_stp off
     bridge_fd 0
+
+auto ${PVECM_IFACE}
+iface ${PVECM_IFACE} inet manual
+    ovs_type OVSPort
+    ovs_bridge vmbr1
+    ovs_mtu ${NETWORK_CONFIG[MTU]}
+    ovs_options other_config:rstp-enable=true other_config:rstp-path-cost=150 other_config:rstp-port-admin-edge=false other_config:rstp-port-auto-edge=false other_config:rstp-port-mcheck=true vlan_mode=native-untagged
+
+auto vmbr1
+iface vmbr1 inet manual
+    ovs_type OVSBridge
+    ovs_ports ${PVECM_IFACE} vmbr1.${NETWORK_CONFIG[VLAN_PVECM]}
+    up ovs-vsctl set Bridge \${IFACE} rstp_enable=true other_config:rstp-priority=32768
+    post-up sleep 10
+    ovs_mtu ${NETWORK_CONFIG[MTU]}
+
+auto vmbr1.${NETWORK_CONFIG[VLAN_PVECM]}
+iface vmbr1.${NETWORK_CONFIG[VLAN_PVECM]} inet static
+    address ${node_ip_pvecm}/24
+    ovs_type OVSIntPort
+    ovs_bridge vmbr1
+    ovs_mtu ${NETWORK_CONFIG[MTU]}
+    ovs_options tag=${NETWORK_CONFIG[VLAN_PVECM]}
+    post-up /usr/bin/systemctl restart frr.service
 
 auto ${CEPH_IFACE}
 iface ${CEPH_IFACE} inet manual
@@ -205,6 +233,12 @@ interface lo
  ip router openfabric 1
  openfabric passive
 
+interface vmbr1.${NETWORK_CONFIG[VLAN_PVECM]}
+ ip router openfabric 1
+ openfabric csnp-interval 2
+ openfabric hello-interval 1
+ openfabric hello-multiplier 2
+
 interface vmbr2.${NETWORK_CONFIG[VLAN_CLUSTER]}
  ip router openfabric 1
  openfabric csnp-interval 2
@@ -249,7 +283,7 @@ main() {
     if [[ $EUID -ne 0 ]]; then
         log_message "ERROR" "This script must be run as root"
         exit 1
-    }
+    fi
     
     # Install required packages
     apt update

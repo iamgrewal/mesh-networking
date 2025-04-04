@@ -1,63 +1,81 @@
-# Logs
+# Log files
 *.log
 /var/log/mesh-*.log
 
 # Backup files
-/etc/network/backups/
 *.bak
 *.backup
+*~
 
-# Editor files
+# Configuration backups
+/etc/network/backups/
+/etc/frr/backups/
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+
+# IDE files
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
+*.sublime-*
 
 # OS files
 .DS_Store
 Thumbs.db
 
-# Temporary files
-*.tmp
-*.temp
+# Cursor specific
+.cursorrules
+.cursor/
 
-# Configuration files (optional, uncomment if needed)
-# /etc/network/interfaces
-# /etc/frr/frr.conf
+# Test files
+*.test
+test/
+tests/
 
 # Documentation drafts
 *.md~
 *.txt~
 
-# Test files
-*.test
-*.spec
-
 # Local configuration
+local.conf
 .env
-.env.local
 
 # Build artifacts
 *.o
-*.so
 *.pyc
 __pycache__/
+dist/
+build/
+
+# Dependency directories
+node_modules/
+vendor/
+
+# Database files
+*.db
+*.sqlite
+
+# Certificate files
+*.pem
+*.key
+*.crt
+
+# Compiled files
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
 
 # Package files
-*.deb
-*.rpm
-*.tar.gz
-*.zip
-
-# IDE specific files
-.project
-.classpath
-.settings/
-
-# Shell history
-.bash_history
-.zsh_history
-
-# System files
-.cursorrules 
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip 

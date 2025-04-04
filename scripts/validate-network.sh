@@ -3,7 +3,7 @@
 # Version: 1.0.0
 # Author: mesh-networking
 # Date: 2024-04-04
-# Purpose: Validate mesh network configuration and connectivity
+# Purpose: Validate mesh network configuration
 
 set -euo pipefail
 
@@ -16,6 +16,14 @@ NC='\033[0m' # No Color
 # Log file
 LOG_FILE="/var/log/mesh-validation.log"
 
+# Configuration variables
+declare -A NETWORK_CONFIG=(
+    ["VLAN_CLUSTER"]="55"
+    ["VLAN_CEPH"]="60"
+    ["VLAN_PVECM"]="50"
+    ["MTU"]="9000"
+)
+
 # Function to log messages
 log_message() {
     local level=$1
@@ -24,113 +32,146 @@ log_message() {
     echo -e "${timestamp} [${level}] ${message}" | tee -a "$LOG_FILE"
 }
 
-# Function to check interface configuration
-check_interface() {
-    local iface=$1
-    local expected_mtu=${2:-1500}
+# Function to validate interface configuration
+validate_interfaces() {
+    log_message "INFO" "Validating network interfaces"
     
-    if ! ip link show "$iface" &>/dev/null; then
-        log_message "ERROR" "Interface $iface does not exist"
-        return 1
-    fi
+    # Check if required interfaces exist
+    local interfaces=("vmbr0" "vmbr1" "vmbr2")
+    for iface in "${interfaces[@]}"; do
+        if ! ip link show "$iface" &>/dev/null; then
+            log_message "ERROR" "Interface $iface not found"
+            return 1
+        fi
+    done
     
-    local mtu
-    mtu=$(ip link show "$iface" | grep -o 'mtu [0-9]*' | awk '{print $2}')
-    if [[ "$mtu" != "$expected_mtu" ]]; then
-        log_message "ERROR" "Interface $iface MTU mismatch: expected $expected_mtu, got $mtu"
-        return 1
-    fi
+    # Check MTU settings
+    for iface in "${interfaces[@]}"; do
+        local mtu
+        mtu=$(ip link show "$iface" | grep -oP 'mtu \K[0-9]+')
+        if [[ "$mtu" != "${NETWORK_CONFIG[MTU]}" ]]; then
+            log_message "ERROR" "Incorrect MTU on $iface: $mtu (expected ${NETWORK_CONFIG[MTU]})"
+            return 1
+        fi
+    done
     
-    log_message "INFO" "Interface $iface configuration OK"
+    log_message "INFO" "Interface validation successful"
     return 0
 }
 
-# Function to check OVS bridge configuration
-check_ovs_bridge() {
-    local bridge=$1
+# Function to validate OVS configuration
+validate_ovs() {
+    log_message "INFO" "Validating OVS configuration"
     
-    if ! ovs-vsctl br-exists "$bridge"; then
-        log_message "ERROR" "OVS bridge $bridge does not exist"
+    # Check if OVS bridges exist
+    if ! ovs-vsctl br-exists vmbr1 || ! ovs-vsctl br-exists vmbr2; then
+        log_message "ERROR" "Required OVS bridges not found"
         return 1
     fi
     
-    # Check RSTP configuration
-    if ! ovs-vsctl get Bridge "$bridge" rstp_enable | grep -q true; then
-        log_message "ERROR" "RSTP not enabled on bridge $bridge"
-        return 1
-    fi
+    # Check RSTP settings
+    for bridge in vmbr1 vmbr2; do
+        if ! ovs-vsctl get Bridge "$bridge" rstp_enable | grep -q "true"; then
+            log_message "ERROR" "RSTP not enabled on $bridge"
+            return 1
+        fi
+    done
     
-    local priority
-    priority=$(ovs-vsctl get Bridge "$bridge" other_config:rstp-priority)
-    if [[ "$priority" != "32768" ]]; then
-        log_message "ERROR" "Incorrect RSTP priority on bridge $bridge"
-        return 1
-    fi
+    # Check VLAN configurations
+    for vlan in "${NETWORK_CONFIG[@]}"; do
+        if ! ovs-vsctl list-ports vmbr1 | grep -q "vmbr1.$vlan"; then
+            log_message "ERROR" "VLAN $vlan not configured on vmbr1"
+            return 1
+        fi
+    done
     
-    log_message "INFO" "OVS bridge $bridge configuration OK"
+    log_message "INFO" "OVS validation successful"
     return 0
 }
 
-# Function to check FRR configuration
-check_frr_config() {
+# Function to validate FRR configuration
+validate_frr() {
+    log_message "INFO" "Validating FRR configuration"
+    
+    # Check if FRR is running
     if ! systemctl is-active --quiet frr; then
         log_message "ERROR" "FRR service not running"
         return 1
     fi
     
-    # Check OpenFabric configuration
-    if ! vtysh -c "show running-config" | grep -q "router openfabric 1"; then
-        log_message "ERROR" "OpenFabric not configured"
+    # Check FRR configuration file
+    if [[ ! -f "/etc/frr/frr.conf" ]]; then
+        log_message "ERROR" "FRR configuration file not found"
         return 1
     fi
     
-    log_message "INFO" "FRR configuration OK"
+    # Validate OpenFabric configuration
+    if ! vtysh -c "show running-config" | grep -q "router openfabric"; then
+        log_message "ERROR" "OpenFabric not configured in FRR"
+        return 1
+    fi
+    
+    log_message "INFO" "FRR validation successful"
     return 0
 }
 
-# Function to check network connectivity
-check_connectivity() {
-    local target_ip=$1
-    local interface=$2
+# Function to validate network connectivity
+validate_connectivity() {
+    log_message "INFO" "Validating network connectivity"
     
-    if ! ping -c 3 -I "$interface" "$target_ip" &>/dev/null; then
-        log_message "ERROR" "Cannot reach $target_ip via $interface"
-        return 1
-    fi
+    # Get list of cluster nodes (this should be populated based on your environment)
+    local nodes=("node1" "node2" "node3")
     
-    log_message "INFO" "Connectivity to $target_ip via $interface OK"
+    # Test connectivity between nodes
+    for node in "${nodes[@]}"; do
+        # Test cluster network (VLAN 55)
+        if ! ping -c 1 -I "vmbr2.${NETWORK_CONFIG[VLAN_CLUSTER]}" "$node" &>/dev/null; then
+            log_message "ERROR" "Failed to ping $node on cluster network"
+            return 1
+        fi
+        
+        # Test Ceph network (VLAN 60)
+        if ! ping -c 1 -I "vmbr2.${NETWORK_CONFIG[VLAN_CEPH]}" "$node" &>/dev/null; then
+            log_message "ERROR" "Failed to ping $node on Ceph network"
+            return 1
+        fi
+        
+        # Test PVECM network (VLAN 50)
+        if ! ping -c 1 -I "vmbr1.${NETWORK_CONFIG[VLAN_PVECM]}" "$node" &>/dev/null; then
+            log_message "ERROR" "Failed to ping $node on PVECM network"
+            return 1
+        fi
+    done
+    
+    log_message "INFO" "Connectivity validation successful"
     return 0
 }
 
 # Main validation function
-validate_network() {
+perform_validation() {
     log_message "INFO" "Starting network validation"
     
-    # Check interfaces
-    check_interface "vmbr0" "1500"
-    check_interface "vmbr2" "9000"
-    check_interface "vmbr2.55" "9000"
-    check_interface "vmbr2.60" "9000"
+    local validation_failed=0
     
-    # Check OVS bridges
-    check_ovs_bridge "vmbr2"
+    # Validate interfaces
+    validate_interfaces || validation_failed=1
     
-    # Check FRR configuration
-    check_frr_config
+    # Validate OVS
+    validate_ovs || validation_failed=1
     
-    # Check connectivity to other nodes
-    # Note: This assumes a 5-node cluster with IPs 90-94
-    local node_id
-    node_id=$(hostname | grep -o '[0-9]*$')
+    # Validate FRR
+    validate_frr || validation_failed=1
     
-    for i in {90..94}; do
-        if [[ "$i" != "$node_id" ]]; then
-            check_connectivity "10.55.10.$i" "vmbr2.55"
-            check_connectivity "10.60.10.$i" "vmbr2.60"
-        fi
-    done
+    # Validate connectivity
+    validate_connectivity || validation_failed=1
     
-    log_message "INFO" "Network validation completed"
+    if [[ $validation_failed -eq 1 ]]; then
+        log_message "ERROR" "Network validation failed"
+        return 1
+    fi
+    
+    log_message "INFO" "Network validation completed successfully"
+    return 0
 }
 
 # Main execution
@@ -141,8 +182,8 @@ main() {
         exit 1
     fi
     
-    # Run validation
-    validate_network
+    # Perform validation
+    perform_validation
 }
 
 # Execute main function

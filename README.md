@@ -1,130 +1,133 @@
-# Proxmox VE Mesh Network Configuration
+# Mesh Networking for Proxmox VE Ceph Cluster
 
-This repository contains scripts for setting up and managing a full mesh network configuration for Proxmox VE clusters with Ceph storage. The configuration uses Open vSwitch with RSTP and FRRouting with OpenFabric for optimal performance and high availability.
+This repository contains scripts and configurations for setting up a full mesh network for a Proxmox VE Ceph cluster using Open vSwitch and FRRouting.
 
 ## Overview
 
 The mesh network configuration provides:
-- Direct high-speed connections between nodes (10/25/40/100Gbps)
-- Automatic failover routing
-- Separate VLANs for Ceph and cluster traffic
-- Jumbo frames (MTU 9000) for optimal performance
+- High-availability networking for Ceph storage
+- Redundant cluster communication
+- Efficient network isolation using VLANs
+- Rapid convergence using RSTP
+- Optimized routing with OpenFabric
 
 ## Network Architecture
 
-The configuration implements a 5-node cluster with the following network segments:
-- Public network: 192.168.51.9x/24 (vmbr0)
-- Cluster network: VLAN 55 with IPs 10.55.10.9x/24
-- Ceph network: VLAN 60 with IPs 10.60.10.9x/24
+The network consists of three main segments:
+1. Public Network (vmbr0)
+   - Standard network interface for general access
+   - MTU: 1500
+
+2. PVECM Network (vmbr1)
+   - VLAN 50 for Proxmox cluster management
+   - Used for corosync communication
+   - MTU: 9000
+
+3. Ceph/Cluster Network (vmbr2)
+   - VLAN 55 for cluster traffic
+   - VLAN 60 for Ceph traffic
+   - MTU: 9000
 
 ## Prerequisites
 
-- Proxmox VE 8.3
-- Debian 12
+- Proxmox VE 8.3 or later
+- Open vSwitch
+- FRRouting
+- At least 3 network interfaces per node
 - Root access
-- Network interfaces with support for jumbo frames
-- Open vSwitch and FRRouting packages
+
+## Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/iamgrewal/mesh-networking.git
+   cd mesh-networking
+   ```
+
+2. Run the setup script:
+   ```bash
+   sudo ./scripts/mesh-setup.sh
+   ```
+
+3. Validate the configuration:
+   ```bash
+   sudo ./scripts/validate-network.sh
+   ```
 
 ## Scripts
 
-### 1. mesh-setup.sh
-
-Initial setup script for configuring the mesh network.
-
-Usage:
-```bash
-sudo ./mesh-setup.sh
-```
-
-The script will:
-- Install required packages
-- Prompt for node information
-- Configure network interfaces
-- Set up OVS bridges with RSTP
-- Configure FRR with OpenFabric
-
-### 2. validate-network.sh
-
-Validation script to verify network configuration and connectivity.
-
-Usage:
-```bash
-sudo ./validate-network.sh
-```
-
-The script checks:
-- Interface configurations
-- OVS bridge settings
+### mesh-setup.sh
+- Initial network configuration
+- OVS bridge setup
 - FRR configuration
-- Network connectivity between nodes
+- VLAN configuration
 
-### 3. rollback.sh
+### validate-network.sh
+- Validates network interfaces
+- Checks OVS configuration
+- Verifies FRR settings
+- Tests network connectivity
 
-Rollback script to restore previous configuration in case of failures.
+### rollback.sh
+- Restores previous configuration
+- Cleans up OVS bridges
+- Reverts FRR settings
 
-Usage:
-```bash
-sudo ./rollback.sh
-```
-
-The script will:
-- Find the latest backup
-- Clean up OVS bridges
-- Restore network configuration
-- Verify restoration
-
-## Configuration Files
+## Configuration
 
 ### Network Interfaces
-Location: `/etc/network/interfaces`
-- Configures physical interfaces
-- Sets up OVS bridges
-- Defines VLAN interfaces
+- eth0: Public network
+- eth1: PVECM network
+- eth2: Ceph/Cluster network
 
-### FRR Configuration
-Location: `/etc/frr/frr.conf`
-- Configures OpenFabric routing
-- Sets up interface parameters
-- Defines routing policies
+### VLANs
+- VLAN 50: PVECM traffic
+- VLAN 55: Cluster traffic
+- VLAN 60: Ceph traffic
 
-## Backup and Recovery
-
-Configuration backups are stored in `/etc/network/backups/` with timestamps. The rollback script can restore the most recent backup if needed.
-
-## Logging
-
-All scripts write logs to:
-- `/var/log/mesh-setup.log`
-- `/var/log/mesh-validation.log`
-- `/var/log/mesh-rollback.log`
+### OVS Bridges
+- vmbr0: Public network
+- vmbr1: PVECM network
+- vmbr2: Ceph/Cluster network
 
 ## Best Practices
 
-1. Always run scripts as root
-2. Backup existing configuration before running setup
-3. Validate network configuration after setup
-4. Monitor logs for any issues
-5. Use rollback script if problems occur
+1. Network Configuration
+   - Use consistent VLAN IDs across all nodes
+   - Set appropriate MTU values
+   - Configure proper interface bonding
+
+2. Open vSwitch
+   - Enable RSTP on all bridges
+   - Set appropriate priorities
+   - Configure proper aging time
+
+3. FRRouting
+   - Use correct NET ID format
+   - Set appropriate timers
+   - Enable integrated configuration
+
+4. Security
+   - Run scripts as root only
+   - Validate all inputs
+   - Create backups before changes
 
 ## Troubleshooting
 
-Common issues and solutions:
+1. Network Issues
+   - Check interface status
+   - Verify VLAN configuration
+   - Test connectivity between nodes
 
-1. Interface not found
-   - Verify interface names
-   - Check physical connections
+2. OVS Problems
+   - Check bridge status
+   - Verify RSTP configuration
+   - Monitor port states
 
-2. MTU mismatch
-   - Ensure hardware support for jumbo frames
-   - Verify MTU settings on all nodes
-
-3. FRR service issues
-   - Check FRR daemon status
-   - Verify configuration syntax
-
-4. OVS bridge problems
-   - Check OVS service status
-   - Verify bridge configuration
+3. FRR Issues
+   - Check service status
+   - Verify configuration
+   - Monitor routing tables
 
 ## Contributing
 
@@ -138,9 +141,12 @@ Common issues and solutions:
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## References
+## Authors
 
-- [Proxmox VE Documentation](https://pve.proxmox.com/wiki/Main_Page)
-- [Open vSwitch Documentation](https://docs.openvswitch.org/)
-- [FRRouting Documentation](https://docs.frrouting.org/)
-- [Ceph Documentation](https://docs.ceph.com/) 
+- mesh-networking team
+
+## Acknowledgments
+
+- Proxmox VE team
+- Open vSwitch community
+- FRRouting community 

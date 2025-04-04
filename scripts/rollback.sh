@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Version: 1.0.0
+# Version: 1.0.1
 # Author: mesh-networking
 # Date: 2024-04-04
 # Purpose: Rollback script for mesh network configuration
@@ -15,6 +15,13 @@ NC='\033[0m' # No Color
 
 # Log file
 LOG_FILE="/var/log/mesh-rollback.log"
+
+# Configuration variables
+declare -A NETWORK_CONFIG=(
+    ["VLAN_CLUSTER"]="55"
+    ["VLAN_CEPH"]="60"
+    ["VLAN_PVECM"]="50"
+)
 
 # Function to log messages
 log_message() {
@@ -80,6 +87,7 @@ cleanup_ovs() {
     log_message "INFO" "Cleaning up OVS bridges"
     
     # Remove OVS bridges
+    ovs-vsctl del-br vmbr1 2>/dev/null || true
     ovs-vsctl del-br vmbr2 2>/dev/null || true
     
     log_message "INFO" "OVS bridges cleaned up"
@@ -92,6 +100,12 @@ verify_restoration() {
     # Check if interfaces are up
     if ! ip link show vmbr0 &>/dev/null; then
         log_message "ERROR" "vmbr0 interface not restored"
+        return 1
+    fi
+    
+    # Check if OVS bridges are removed
+    if ovs-vsctl br-exists vmbr1 || ovs-vsctl br-exists vmbr2; then
+        log_message "ERROR" "OVS bridges not properly cleaned up"
         return 1
     fi
     
