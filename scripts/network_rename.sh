@@ -1,7 +1,7 @@
 #!/bin/bash
 # Interactive NIC Renamer for Proxmox
 # Author: Jatinder Grewal <jgrewal@po1.me>
-# Version: 1.0.2
+# Version: 1.0.3
 # Date: 2025-04-04
 # Purpose: Allows user to select and rename interfaces to consistent names (e.g., eth0, eth1...)
 
@@ -46,6 +46,42 @@ get_mac() {
         log_error "Could not find MAC address for interface $iface"
         return 1
     fi
+}
+
+# Get maximum speed for interface
+get_max_speed() {
+    local iface="$1"
+    local max_speed="Unknown"
+    
+    # Check if ethtool is available
+    if ! command -v ethtool &>/dev/null; then
+        log_warn "ethtool not found. Speed information will not be displayed."
+        return 1
+    fi
+    
+    # Get supported link modes
+    local link_modes
+    link_modes=$(ethtool "$iface" 2>/dev/null | grep -A 10 "Supported link modes:" | grep -v "Supported link modes:" | sed 's/^[[:space:]]*//')
+    
+    if [[ -n "$link_modes" ]]; then
+        # Extract the highest speed
+        local highest_speed=0
+        while IFS= read -r mode; do
+            if [[ "$mode" =~ ([0-9]+)baseT ]]; then
+                local speed="${BASH_REMATCH[1]}"
+                if (( speed > highest_speed )); then
+                    highest_speed=$speed
+                fi
+            fi
+        done <<< "$link_modes"
+        
+        if (( highest_speed > 0 )); then
+            max_speed="${highest_speed}Mbps"
+        fi
+    fi
+    
+    echo "$max_speed"
+    return 0
 }
 
 # Create persistent .link file
@@ -112,6 +148,12 @@ main() {
     echo "Changes will persist across reboots using systemd .link files."
     echo "Log file: $LOG_FILE"
 
+    # Check if ethtool is available
+    if ! command -v ethtool &>/dev/null; then
+        log_warn "ethtool not found. Installing ethtool..."
+        apt update && apt install -y ethtool || log_warn "Failed to install ethtool. Speed information will not be displayed."
+    fi
+
     # Step 1: Gather interfaces
     mapfile -t interfaces < <(get_all_interfaces)
 
@@ -124,7 +166,8 @@ main() {
     for i in "${!interfaces[@]}"; do
         iface="${interfaces[$i]}"
         mac=$(get_mac "$iface" || echo "Unknown")
-        printf " [%d] %-10s (MAC: %s)\n" "$i" "$iface" "$mac"
+        speed=$(get_max_speed "$iface" || echo "Unknown")
+        printf " [%d] %-10s (MAC: %s, Speed: %s)\n" "$i" "$iface" "$mac" "$speed"
     done
 
     echo
@@ -167,7 +210,9 @@ main() {
     echo -e "\nPlanned renaming:"
     for i in "${!chosen_order[@]}"; do
         idx="${chosen_order[$i]}"
-        echo "  ${interfaces[$idx]} → ${prefix}${i}"
+        iface="${interfaces[$idx]}"
+        speed=$(get_max_speed "$iface" || echo "Unknown")
+        echo "  ${iface} (Speed: ${speed}) → ${prefix}${i}"
     done
 
     read -rp $'\nProceed with renaming? (y/N): ' confirm
@@ -200,7 +245,9 @@ main() {
         echo -e "After reboot, your interfaces will be renamed as follows:"
         for i in "${!chosen_order[@]}"; do
             idx="${chosen_order[$i]}"
-            echo "  ${interfaces[$idx]} → ${prefix}${i}"
+            iface="${interfaces[$idx]}"
+            speed=$(get_max_speed "$iface" || echo "Unknown")
+            echo "  ${iface} (Speed: ${speed}) → ${prefix}${i}"
         done
     else
         log_error "Some operations failed. Please check the log file: $LOG_FILE"
