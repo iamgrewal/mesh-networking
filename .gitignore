@@ -1,0 +1,63 @@
+# Logs
+*.log
+/var/log/mesh-*.log
+
+# Backup files
+/etc/network/backups/
+*.bak
+*.backup
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+
+# Configuration files (optional, uncomment if needed)
+# /etc/network/interfaces
+# /etc/frr/frr.conf
+
+# Documentation drafts
+*.md~
+*.txt~
+
+# Test files
+*.test
+*.spec
+
+# Local configuration
+.env
+.env.local
+
+# Build artifacts
+*.o
+*.so
+*.pyc
+__pycache__/
+
+# Package files
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+
+# IDE specific files
+.project
+.classpath
+.settings/
+
+# Shell history
+.bash_history
+.zsh_history
+
+# System files
+.cursorrules 
