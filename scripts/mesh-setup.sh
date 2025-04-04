@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Version: 1.0.1
+# Version: 1.0.2
 # Author: Jatinder Grewal <jgrewal@po1.me>
 # Date: 2025-04-04
 # Purpose: Initial setup script for Proxmox VE mesh network with Ceph
@@ -24,6 +24,10 @@ declare -A NETWORK_CONFIG=(
     ["VLAN_PVECM"]="50"
     ["MTU"]="9000"
 )
+
+# Script flags
+DRY_RUN=false
+FORCE=false
 
 # Function to log messages
 log_message() {
@@ -73,6 +77,16 @@ validate_ovs() {
     }
 }
 
+# Function to backup existing configuration
+backup_config() {
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
+    mkdir -p /etc/network/backups/"$timestamp"
+    cp /etc/network/interfaces /etc/network/backups/"$timestamp"/ || true
+    cp /etc/frr/frr.conf /etc/network/backups/"$timestamp"/ || true
+    log_message "INFO" "Backed up configuration to /etc/network/backups/$timestamp/"
+}
+
 # Function to collect node information
 collect_node_info() {
     log_message "INFO" "Collecting node information"
@@ -116,19 +130,44 @@ setup_mesh_network() {
     log_message "INFO" "Setting up mesh network"
     
     # Set hostname
-    echo "$NODE_HOSTNAME" > /etc/hostname
-    hostnamectl set-hostname "$NODE_HOSTNAME"
-    log_message "INFO" "Hostname set to $NODE_HOSTNAME"
+    if [[ "$DRY_RUN" == "false" ]]; then
+        echo "$NODE_HOSTNAME" > /etc/hostname
+        hostnamectl set-hostname "$NODE_HOSTNAME"
+        log_message "INFO" "Hostname set to $NODE_HOSTNAME"
+    else
+        log_message "INFO" "[DRY RUN] Would set hostname to $NODE_HOSTNAME"
+    fi
+    
+    # Backup existing configuration
+    if [[ "$DRY_RUN" == "false" ]]; then
+        backup_config
+    else
+        log_message "INFO" "[DRY RUN] Would backup existing configuration"
+    fi
     
     # Create network configuration
     generate_network_config
     
     # Apply network configuration
-    ifreload -a
+    if [[ "$DRY_RUN" == "false" ]]; then
+        # Enable fabricd in FRR daemons
+        sed -i 's/^fabricd=no/fabricd=yes/' /etc/frr/daemons
+        
+        # Apply network configuration
+        ifreload -a
+        
+        # Enable and start FRR service
+        systemctl enable frr.service
+        systemctl start frr.service
+    else
+        log_message "INFO" "[DRY RUN] Would apply network configuration and restart services"
+    fi
     
-    # Enable and start FRR service
-    systemctl enable frr.service
-    systemctl start frr.service
+    # Output node summary
+    output_node_summary
+    
+    # Validate Ceph if available
+    validate_ceph
     
     log_message "INFO" "Mesh network setup completed"
 }
@@ -141,7 +180,8 @@ generate_network_config() {
     local node_ip_pvecm="10.50.10.${NODE_ID}"
     
     # Generate interfaces configuration
-    cat << EOF > /etc/network/interfaces
+    if [[ "$DRY_RUN" == "false" ]]; then
+        cat << EOF > /etc/network/interfaces
 auto lo
 iface lo inet loopback
 
@@ -213,8 +253,8 @@ iface vmbr2.${NETWORK_CONFIG[VLAN_CEPH]} inet static
     ovs_options tag=${NETWORK_CONFIG[VLAN_CEPH]}
 EOF
 
-    # Generate FRR configuration
-    cat << EOF > /etc/frr/frr.conf
+        # Generate FRR configuration
+        cat << EOF > /etc/frr/frr.conf
 frr defaults traditional
 hostname ${NODE_HOSTNAME}
 log syslog warning
@@ -253,12 +293,77 @@ router openfabric 1
  max-lsp-lifetime 600
  lsp-refresh-interval 180
 EOF
+    else
+        log_message "INFO" "[DRY RUN] Would generate network configuration files:"
+        log_message "INFO" "[DRY RUN] - /etc/network/interfaces"
+        log_message "INFO" "[DRY RUN] - /etc/frr/frr.conf"
+    fi
 
     log_message "INFO" "Network configuration generated"
 }
 
+# Function to output node summary
+output_node_summary() {
+    local node_ip_public="192.168.51.${NODE_ID}"
+    local node_ip_cluster="10.55.10.${NODE_ID}"
+    local node_ip_ceph="10.60.10.${NODE_ID}"
+    local node_ip_pvecm="10.50.10.${NODE_ID}"
+    
+    log_message "INFO" "Node Configuration Summary:"
+    log_message "INFO" "Hostname: ${NODE_HOSTNAME}"
+    log_message "INFO" "Node ID: ${NODE_ID}"
+    log_message "INFO" "Public Network: ${PUB_IFACE} -> vmbr0 -> ${node_ip_public}/24"
+    log_message "INFO" "PVECM Network: ${PVECM_IFACE} -> vmbr1.${NETWORK_CONFIG[VLAN_PVECM]} -> ${node_ip_pvecm}/24"
+    log_message "INFO" "Cluster Network: ${CEPH_IFACE} -> vmbr2.${NETWORK_CONFIG[VLAN_CLUSTER]} -> ${node_ip_cluster}/24"
+    log_message "INFO" "Ceph Network: ${CEPH_IFACE} -> vmbr2.${NETWORK_CONFIG[VLAN_CEPH]} -> ${node_ip_ceph}/24"
+}
+
+# Function to validate Ceph
+validate_ceph() {
+    if command -v pveceph &>/dev/null; then
+        log_message "INFO" "Validating Ceph status with pveceph"
+        pveceph status || log_message "WARNING" "Ceph validation failed or cluster not available"
+    elif command -v ceph &>/dev/null; then
+        log_message "INFO" "Validating Ceph status with ceph"
+        ceph -s || log_message "WARNING" "Ceph validation failed or cluster not available"
+    else
+        log_message "INFO" "Ceph tools not found, skipping validation"
+    fi
+}
+
+# Function to parse command line arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run)
+                DRY_RUN=true
+                shift
+                ;;
+            --force)
+                FORCE=true
+                shift
+                ;;
+            --help)
+                echo "Usage: $0 [options]"
+                echo "Options:"
+                echo "  --dry-run    Show what would be done without making changes"
+                echo "  --force      Skip prompts and use default values"
+                echo "  --help       Show this help message"
+                exit 0
+                ;;
+            *)
+                log_message "ERROR" "Unknown option: $1"
+                exit 1
+                ;;
+        esac
+    done
+}
+
 # Main execution
 main() {
+    # Parse command line arguments
+    parse_args "$@"
+    
     # Check if running as root
     if [[ $EUID -ne 0 ]]; then
         log_message "ERROR" "This script must be run as root"
@@ -266,8 +371,30 @@ main() {
     fi
     
     # Install required packages
-    apt update
-    apt install -y openvswitch-switch frr
+    if [[ "$DRY_RUN" == "false" ]]; then
+        apt update
+        apt install -y openvswitch-switch frr
+    else
+        log_message "INFO" "[DRY RUN] Would install required packages"
+    fi
+    
+    # Validate OVS installation
+    validate_ovs
+    
+    # Collect node information
+    if [[ "$FORCE" == "false" ]]; then
+        collect_node_info
+    else
+        # Use default values for force mode
+        NODE_HOSTNAME="pve-${NODE_ID}"
+        PUB_IFACE="eth0"
+        PVECM_IFACE="eth1"
+        CEPH_IFACE="eth2"
+        PUB_IP="192.168.51.${NODE_ID}"
+        PVECM_IP="10.50.10.${NODE_ID}"
+        CEPH_IP="10.60.10.${NODE_ID}"
+        log_message "INFO" "Using default values in force mode"
+    fi
     
     # Run setup
     setup_mesh_network
