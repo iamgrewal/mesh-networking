@@ -82,11 +82,12 @@ jobs:
           fi
           # Remove 'v' prefix if present (e.g., v1.0.0 -> 1.0.0)
           VERSION=${VERSION#v}
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Using new environment file syntax
+          echo "version=${VERSION}" >> "${GITHUB_ENV}"
 
       - name: Update control file version
         run: |
-          sed -i "s/^Version:.*/Version: ${{ steps.version.outputs.version }}/" build/mesh-networking/DEBIAN/control
+          sed -i "s/^Version:.*/Version: ${{ env.version }}/" build/mesh-networking/DEBIAN/control
           
           # Add Pre-Depends if not present
           if ! grep -q "^Pre-Depends:" build/mesh-networking/DEBIAN/control; then
@@ -100,11 +101,11 @@ jobs:
 
       - name: Inject version into mesh-network-gen script
         run: |
-          sed -i "s/VERSION=\${VERSION:-unknown}/VERSION=${{ steps.version.outputs.version }}/" build/mesh-networking/usr/local/bin/mesh-network-gen
+          sed -i "s/VERSION=\${VERSION:-unknown}/VERSION=${{ env.version }}/" build/mesh-networking/usr/local/bin/mesh-network-gen
 
       - name: Create VERSION metadata file
         run: |
-          echo "${{ steps.version.outputs.version }}" > build/mesh-networking/usr/share/mesh-networking/VERSION
+          echo "${{ env.version }}" > build/mesh-networking/usr/share/mesh-networking/VERSION
 
       - name: Lint mesh-network-gen with shellcheck
         run: |
@@ -117,21 +118,21 @@ jobs:
       - name: Build .deb package
         run: |
           dpkg-deb --build build/mesh-networking
-          mv build/mesh-networking.deb mesh-networking_${{ steps.version.outputs.version }}_all.deb
+          mv build/mesh-networking.deb mesh-networking_${{ env.version }}_all.deb
 
       - name: Upload .deb to release (if applicable)
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
-          files: mesh-networking_${{ steps.version.outputs.version }}_all.deb
+          files: mesh-networking_${{ env.version }}_all.deb
 
       - name: (Optional) Commit .deb to releases folder
         if: github.event_name != 'release'
         run: |
           mkdir -p releases
-          cp mesh-networking_${{ steps.version.outputs.version }}_all.deb releases/
+          cp mesh-networking_${{ env.version }}_all.deb releases/
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
           git add releases/
-          git commit -m "Add build ${{ steps.version.outputs.version }}"
+          git commit -m "Add build ${{ env.version }}"
           git push 
