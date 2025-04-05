@@ -281,6 +281,7 @@ iface vmbr0 inet static
     bridge-stp off
     bridge-fd 0
     bridge-vlan-aware yes
+    bridge_mtu 9000
     mtu 9000
 
 # Proxmox cluster (VLAN 60)
