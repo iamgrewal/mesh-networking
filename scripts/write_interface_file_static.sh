@@ -155,15 +155,43 @@ validate_generated_config() {
         return 1
     fi
     
-    # Check for duplicate VLAN tags
-    local duplicate_vlans=$(grep -E "ovs_options tag=[0-9]+" "$output_file" | sort | uniq -d)
-    if [ -n "$duplicate_vlans" ]; then
-        log "ERROR" "Duplicate VLAN tags found: $duplicate_vlans"
+    # Check for duplicate VLAN tags - enhanced to extract actual tag numbers
+    local tags=$(grep -oE "tag=[0-9]+" "$output_file" | cut -d= -f2)
+    local duplicates=$(echo "$tags" | sort | uniq -d)
+    if [ -n "$duplicates" ]; then
+        log "ERROR" "Duplicate VLAN tags found: $duplicates"
         return 1
     fi
     
     log "INFO" "Configuration validation completed successfully."
     return 0
+}
+
+# Generate FRR configuration (placeholder for future implementation)
+generate_frr_config() {
+    local node=$1
+    local node_id=$2
+    local output_file="/etc/frr/frr.${node}"
+    
+    log "INFO" "Generating FRR configuration for node $node at $output_file"
+    
+    # Create backup of existing file if it exists
+    if [ -f "$output_file" ]; then
+        backup_file="${output_file}.$(date +%Y%m%d%H%M%S).bak"
+        cp "$output_file" "$backup_file"
+        log "INFO" "Created backup of existing FRR file at $backup_file"
+    fi
+    
+    # This is a placeholder for future implementation
+    # The actual FRR configuration will be generated here
+    cat <<EOF > "$output_file"
+# FRR configuration for $node
+# Generated: $(date)
+# This is a placeholder for future implementation
+EOF
+    
+    log "INFO" "FRR configuration file generated at $output_file"
+    log "INFO" "Note: FRR configuration generation is not fully implemented yet."
 }
 
 # Main script
@@ -282,7 +310,6 @@ iface vmbr0 inet static
     bridge-fd 0
     bridge-vlan-aware yes
     bridge_mtu 9000
-    mtu 9000
 
 # Proxmox cluster (VLAN 60)
 auto ${eth_interface_vmbr1}
@@ -357,6 +384,12 @@ if ! validate_generated_config "$output_file"; then
     log "INFO" "Continuing despite validation failures."
 fi
 
+# Ask if user wants to generate FRR configuration
+read -rp "Do you want to generate FRR configuration? (y/n): " generate_frr
+if [[ "$generate_frr" =~ ^[Yy]$ ]]; then
+    generate_frr_config "$NODE" "$NODE_ID"
+fi
+
 # Ask if user wants to apply the configuration
 read -rp "Do you want to apply this configuration now? (y/n): " apply_now
 if [[ "$apply_now" =~ ^[Yy]$ ]]; then
@@ -373,9 +406,9 @@ if [[ "$apply_now" =~ ^[Yy]$ ]]; then
     if [[ "$reload_now" =~ ^[Yy]$ ]]; then
         log "INFO" "Reloading network interfaces..."
         if command -v ifreload &>/dev/null; then
-            ifreload -a
+            ifreload -a 2>&1 | tee -a "$LOG"
         else
-            systemctl restart networking
+            systemctl restart networking 2>&1 | tee -a "$LOG"
         fi
         log "INFO" "Network interfaces reloaded"
     else
