@@ -167,31 +167,74 @@ validate_generated_config() {
     return 0
 }
 
-# Generate FRR configuration (placeholder for future implementation)
+# Generate FRR configuration with OpenFabric support
 generate_frr_config() {
     local node=$1
     local node_id=$2
-    local output_file="/etc/frr/frr.${node}"
-    
+    local output_file="/etc/frr/frr.conf.${node}"
+    local cluster_ip="10.55.10.${node_id}"  # OpenFabric loopback IP
+
     log "INFO" "Generating FRR configuration for node $node at $output_file"
-    
-    # Create backup of existing file if it exists
+
     if [ -f "$output_file" ]; then
         backup_file="${output_file}.$(date +%Y%m%d%H%M%S).bak"
         cp "$output_file" "$backup_file"
         log "INFO" "Created backup of existing FRR file at $backup_file"
     fi
-    
-    # This is a placeholder for future implementation
-    # The actual FRR configuration will be generated here
+
     cat <<EOF > "$output_file"
-# FRR configuration for $node
-# Generated: $(date)
-# This is a placeholder for future implementation
+frr defaults traditional
+hostname ${node}
+log syslog warning
+ip forwarding
+no ipv6 forwarding
+service integrated-vtysh-config
+
+interface lo
+ ip address ${cluster_ip}/32
+ ip router openfabric 1
+ openfabric passive
+
+interface vmbr1.60
+ ip router openfabric 1
+ openfabric csnp-interval 2
+ openfabric hello-interval 1
+ openfabric hello-multiplier 2
+
+interface vmbr2.50
+ ip router openfabric 1
+ openfabric csnp-interval 2
+ openfabric hello-interval 1
+ openfabric hello-multiplier 2
+
+interface vmbr2.55
+ ip router openfabric 1
+ openfabric csnp-interval 2
+ openfabric hello-interval 1
+ openfabric hello-multiplier 2
+
+line vty
+
+router openfabric 1
+ net 49.0001.1000.0000.00$(printf "%02x" "${node_id}").00
+ lsp-gen-interval 1
+ max-lsp-lifetime 600
+ lsp-refresh-interval 180
 EOF
+
+    log "INFO" "FRR configuration generated at $output_file"
     
-    log "INFO" "FRR configuration file generated at $output_file"
-    log "INFO" "Note: FRR configuration generation is not fully implemented yet."
+    # Enable the fabricd daemon in FRR
+    if [ -f "/etc/frr/daemons" ]; then
+        if grep -q "^fabricd=no" "/etc/frr/daemons"; then
+            sed -i 's/^fabricd=no/fabricd=yes/' /etc/frr/daemons
+            log "INFO" "Enabled OpenFabric (fabricd) in FRR daemons"
+        else
+            log "INFO" "OpenFabric (fabricd) is already enabled in FRR daemons"
+        fi
+    else
+        log "WARN" "FRR daemons file not found. Please enable fabricd manually."
+    fi
 }
 
 # Main script
@@ -393,14 +436,20 @@ fi
 # Ask if user wants to apply the configuration
 read -rp "Do you want to apply this configuration now? (y/n): " apply_now
 if [[ "$apply_now" =~ ^[Yy]$ ]]; then
-    if [ -f "/etc/network/interfaces" ]; then
-        backup_file="/etc/network/interfaces.$(date +%Y%m%d%H%M%S).bak"
-        cp "/etc/network/interfaces" "$backup_file"
-        log "INFO" "Created backup of existing interfaces file at $backup_file"
+    read -rp "Do you want to make this config the system default? (link to /etc/network/interfaces)? (y/n): " set_default
+    if [[ "$set_default" =~ ^[Yy]$ ]]; then
+        if [ -f "/etc/network/interfaces" ]; then
+            backup_file="/etc/network/interfaces.$(date +%Y%m%d%H%M%S).bak"
+            cp "/etc/network/interfaces" "$backup_file"
+            log "INFO" "Created backup of existing interfaces file at $backup_file"
+        fi
+
+        ln -sf "$output_file" /etc/network/interfaces
+        log "INFO" "Linked $output_file → /etc/network/interfaces"
+    else
+        log "INFO" "Configuration saved but not linked to system default."
+        log "INFO" "To apply later: ln -sf $output_file /etc/network/interfaces"
     fi
-    
-    cp "$output_file" "/etc/network/interfaces"
-    log "INFO" "Applied configuration to /etc/network/interfaces"
     
     read -rp "Do you want to reload network interfaces now? (y/n): " reload_now
     if [[ "$reload_now" =~ ^[Yy]$ ]]; then
@@ -416,7 +465,7 @@ if [[ "$apply_now" =~ ^[Yy]$ ]]; then
     fi
 else
     log "INFO" "Configuration saved but not applied. To apply later:"
-    log "INFO" "  cp $output_file /etc/network/interfaces"
+    log "INFO" "  ln -sf $output_file /etc/network/interfaces"
     log "INFO" "  ifreload -a"
 fi
 
