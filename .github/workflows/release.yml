@@ -119,12 +119,26 @@ jobs:
         run: |
           dpkg-deb --build build/mesh-networking
           mv build/mesh-networking.deb mesh-networking_${{ env.version }}_all.deb
+          # Create a symlink for the latest version
+          ln -sf mesh-networking_${{ env.version }}_all.deb mesh-networking_all.deb
 
       - name: Upload .deb to release (if applicable)
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
-          files: mesh-networking_${{ env.version }}_all.deb
+          files: |
+            mesh-networking_${{ env.version }}_all.deb
+            mesh-networking_all.deb
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          body: |
+            Mesh Networking for Proxmox VE ${{ env.version }}
+            
+            This release includes:
+            - Full mesh networking setup for Proxmox VE clusters
+            - Open vSwitch integration with RSTP
+            - FRR OpenFabric routing
+            - Automated configuration tools
 
       - name: (Optional) Commit .deb to releases folder
         if: github.event_name != 'release'

@@ -21,12 +21,22 @@ A comprehensive automation framework for setting up full mesh networking in Prox
 
 ```bash
 # Download the latest release
+# Option 1: Using wget (if the latest release is available)
 wget https://github.com/iamgrewal/mesh-networking/releases/latest/download/mesh-networking_all.deb
+
+# Option 2: Using curl (alternative)
+curl -L -o mesh-networking_all.deb https://github.com/iamgrewal/mesh-networking/releases/latest/download/mesh-networking_all.deb
+
+# Option 3: Manual download from GitHub Releases page
+# Visit https://github.com/iamgrewal/mesh-networking/releases
+# Download the latest mesh-networking_*_all.deb file
 
 # Install the package
 sudo dpkg -i mesh-networking_all.deb
 sudo apt-get install -f  # Install any missing dependencies
 ```
+
+> **Note**: If you encounter a 404 error when downloading, please check the [Releases page](https://github.com/iamgrewal/mesh-networking/releases) directly to find the latest release file.
 
 ## Usage
 
