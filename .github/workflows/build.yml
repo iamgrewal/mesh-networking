@@ -59,17 +59,15 @@ jobs:
           cp mesh-networking-deb/CHANGELOG.md build/mesh-networking/usr/share/mesh-networking/ 2>/dev/null || true
 
           # Create logrotate config
-          cat > build/mesh-networking/etc/logrotate.d/mesh-networking << 'EOF'
-          /var/log/mesh-network-gen.log {
-              weekly
-              rotate 4
-              compress
-              delaycompress
-              missingok
-              notifempty
-              create 644 root root
-          }
-          EOF
+          echo "/var/log/mesh-network-gen.log {" > build/mesh-networking/etc/logrotate.d/mesh-networking
+          echo "    weekly" >> build/mesh-networking/etc/logrotate.d/mesh-networking
+          echo "    rotate 4" >> build/mesh-networking/etc/logrotate.d/mesh-networking
+          echo "    compress" >> build/mesh-networking/etc/logrotate.d/mesh-networking
+          echo "    delaycompress" >> build/mesh-networking/etc/logrotate.d/mesh-networking
+          echo "    missingok" >> build/mesh-networking/etc/logrotate.d/mesh-networking
+          echo "    notifempty" >> build/mesh-networking/etc/logrotate.d/mesh-networking
+          echo "    create 644 root root" >> build/mesh-networking/etc/logrotate.d/mesh-networking
+          echo "}" >> build/mesh-networking/etc/logrotate.d/mesh-networking
 
       - name: Set version from tag or default
         id: version
