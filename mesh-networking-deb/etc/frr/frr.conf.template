@@ -1,0 +1,37 @@
+frr defaults traditional
+hostname NODE_NAME
+log syslog warning
+ip forwarding
+no ipv6 forwarding
+service integrated-vtysh-config
+
+interface lo
+ ip address CLUSTER_IP/32
+ ip router openfabric 1
+ openfabric passive
+
+interface vmbr1.60
+ ip router openfabric 1
+ openfabric csnp-interval 2
+ openfabric hello-interval 1
+ openfabric hello-multiplier 2
+
+interface vmbr2.50
+ ip router openfabric 1
+ openfabric csnp-interval 2
+ openfabric hello-interval 1
+ openfabric hello-multiplier 2
+
+interface vmbr2.55
+ ip router openfabric 1
+ openfabric csnp-interval 2
+ openfabric hello-interval 1
+ openfabric hello-multiplier 2
+
+line vty
+
+router openfabric 1
+ net 49.0001.1000.0000.00NET_ID.00
+ lsp-gen-interval 1
+ max-lsp-lifetime 600
+ lsp-refresh-interval 180 

@@ -1,0 +1,20 @@
+#!/bin/bash
+set -e
+
+# Pre-removal script for mesh-networking package
+
+# Stop and disable the service
+if [ -f /etc/systemd/system/mesh-networking.service ]; then
+    systemctl stop mesh-networking.service || true
+    systemctl disable mesh-networking.service || true
+fi
+
+# Reload systemd
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+fi
+
+# Don't remove configuration files or logs
+# These will be preserved for reference
+
+exit 0 

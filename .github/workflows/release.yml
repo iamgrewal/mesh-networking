@@ -1,0 +1,137 @@
+name: Build & Release mesh-networking .deb
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+jobs:
+  update-release-notes:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Generate release notes
+        uses: release-drafter/release-drafter@v6
+        with:
+          config-name: release-drafter.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-deb:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev fakeroot lintian shellcheck
+
+      - name: Prepare package folder
+        run: |
+          mkdir -p build/mesh-networking/DEBIAN
+          mkdir -p build/mesh-networking/usr/local/bin
+          mkdir -p build/mesh-networking/etc/frr
+          mkdir -p build/mesh-networking/etc/systemd/system
+          mkdir -p build/mesh-networking/usr/share/mesh-networking
+          mkdir -p build/mesh-networking/etc/logrotate.d
+
+          # Copy control scripts
+          cp mesh-networking-deb/DEBIAN/control build/mesh-networking/DEBIAN/
+          cp mesh-networking-deb/DEBIAN/postinst build/mesh-networking/DEBIAN/ 2>/dev/null || touch build/mesh-networking/DEBIAN/postinst
+          cp mesh-networking-deb/DEBIAN/prerm build/mesh-networking/DEBIAN/ 2>/dev/null || touch build/mesh-networking/DEBIAN/prerm
+          chmod 755 build/mesh-networking/DEBIAN/{postinst,prerm}
+
+          # Copy main script
+          cp mesh-networking-deb/usr/local/bin/mesh-network-gen build/mesh-networking/usr/local/bin/
+          chmod 755 build/mesh-networking/usr/local/bin/mesh-network-gen
+
+          # Copy systemd service
+          cp mesh-networking-deb/etc/systemd/system/mesh-networking.service build/mesh-networking/etc/systemd/system/
+
+          # Copy README and other documentation
+          cp mesh-networking-deb/usr/share/mesh-networking/README.md build/mesh-networking/usr/share/mesh-networking/ 2>/dev/null || true
+          cp mesh-networking-deb/CHANGELOG.md build/mesh-networking/usr/share/mesh-networking/ 2>/dev/null || true
+
+          # Create logrotate config
+          cat > build/mesh-networking/etc/logrotate.d/mesh-networking << 'EOF'
+          /var/log/mesh-network-gen.log {
+              weekly
+              rotate 4
+              compress
+              delaycompress
+              missingok
+              notifempty
+              create 644 root root
+          }
+          EOF
+
+      - name: Set version from tag or default
+        id: version
+        run: |
+          VERSION=${GITHUB_REF##*/}
+          if [[ "$VERSION" == "refs/tags/"* ]]; then
+            VERSION=${VERSION#refs/tags/}
+          else
+            VERSION="dev-$(date +%Y%m%d%H%M)"
+          fi
+          # Remove 'v' prefix if present (e.g., v1.0.0 -> 1.0.0)
+          VERSION=${VERSION#v}
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Update control file version
+        run: |
+          sed -i "s/^Version:.*/Version: ${{ steps.version.outputs.version }}/" build/mesh-networking/DEBIAN/control
+          
+          # Add Pre-Depends if not present
+          if ! grep -q "^Pre-Depends:" build/mesh-networking/DEBIAN/control; then
+            sed -i '/^Depends:/i Pre-Depends: bash, systemd' build/mesh-networking/DEBIAN/control
+          fi
+          
+          # Ensure Depends includes required packages
+          if ! grep -q "openvswitch-switch" build/mesh-networking/DEBIAN/control; then
+            sed -i 's/^Depends:/Depends: openvswitch-switch, frr, iproute2,/' build/mesh-networking/DEBIAN/control
+          fi
+
+      - name: Inject version into mesh-network-gen script
+        run: |
+          sed -i "s/VERSION=\${VERSION:-unknown}/VERSION=${{ steps.version.outputs.version }}/" build/mesh-networking/usr/local/bin/mesh-network-gen
+
+      - name: Create VERSION metadata file
+        run: |
+          echo "${{ steps.version.outputs.version }}" > build/mesh-networking/usr/share/mesh-networking/VERSION
+
+      - name: Lint mesh-network-gen with shellcheck
+        run: |
+          shellcheck build/mesh-networking/usr/local/bin/mesh-network-gen || true
+
+      - name: Validate package with lintian
+        run: |
+          lintian build/mesh-networking || true
+
+      - name: Build .deb package
+        run: |
+          dpkg-deb --build build/mesh-networking
+          mv build/mesh-networking.deb mesh-networking_${{ steps.version.outputs.version }}_all.deb
+
+      - name: Upload .deb to release (if applicable)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: mesh-networking_${{ steps.version.outputs.version }}_all.deb
+
+      - name: (Optional) Commit .deb to releases folder
+        if: github.event_name != 'release'
+        run: |
+          mkdir -p releases
+          cp mesh-networking_${{ steps.version.outputs.version }}_all.deb releases/
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add releases/
+          git commit -m "Add build ${{ steps.version.outputs.version }}"
+          git push 

@@ -1,0 +1,14 @@
+[Unit]
+Description=Proxmox Mesh Networking Service
+After=network.target openvswitch-switch.service frr.service
+Requires=openvswitch-switch.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/bin/true
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target 

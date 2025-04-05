@@ -1,0 +1,30 @@
+name-template: "v$NEXT_PATCH_VERSION"
+tag-template: "v$NEXT_PATCH_VERSION"
+categories:
+  - title: "🚀 Features"
+    labels: ["feature", "enhancement"]
+  - title: "🐛 Bug Fixes"
+    labels: ["bug", "fix"]
+  - title: "🛠 Maintenance"
+    labels: ["chore", "refactor", "infra", "docs", "style", "test", "ci"]
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  ## Installation
+
+  Download the latest `.deb` package:
+  ```bash
+  wget https://github.com/iamgrewal/mesh-networking/releases/download/$TAG/mesh-networking_$TAG_all.deb
+  sudo dpkg -i mesh-networking_$TAG_all.deb
+  sudo apt-get install -f  # Install any missing dependencies
+  ```
+
+  ## Contributors
+
+  $CONTRIBUTORS
+
+  ## Documentation
+
+  For detailed documentation, see the [package documentation](https://github.com/iamgrewal/mesh-networking/tree/main/mesh-networking-deb/usr/share/mesh-networking). 

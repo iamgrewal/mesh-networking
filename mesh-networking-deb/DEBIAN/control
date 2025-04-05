@@ -1,0 +1,14 @@
+Package: mesh-networking
+Version: 1.0.0
+Section: admin
+Priority: optional
+Architecture: all
+Pre-Depends: bash, systemd
+Depends: openvswitch-switch, frr, iproute2
+Provides: proxmox-mesh-networking
+Replaces: proxmox-old-network-setup
+Maintainer: Jatinder Grewal <iamgrewal@gmail.com>
+Description: Proxmox Mesh Network Automation Script with FRR OpenFabric
+ Provides full automation of mesh-ready network interfaces and routing for Proxmox VE clusters.
+ This package includes scripts for configuring Open vSwitch bridges with RSTP,
+ FRR OpenFabric routing, and VLAN segregation for Ceph and cluster traffic. 

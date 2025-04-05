@@ -1,0 +1,37 @@
+#!/bin/bash
+set -e
+
+# Post-installation script for mesh-networking package
+
+# Ensure the script is executable
+chmod +x /usr/local/bin/mesh-network-gen
+
+# Create log directory if it doesn't exist
+mkdir -p /var/log
+touch /var/log/mesh-network-gen.log
+chmod 644 /var/log/mesh-network-gen.log
+
+# Truncate log file to prevent it from growing indefinitely
+> /var/log/mesh-network-gen.log
+
+# Reload systemd to recognize the new service
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reexec
+    systemctl daemon-reload
+fi
+
+# Enable the service but don't start it yet
+if [ -f /etc/systemd/system/mesh-networking.service ]; then
+    systemctl enable mesh-networking.service
+fi
+
+# Display installation message
+echo "====================================================="
+echo "Mesh Networking for Proxmox VE has been installed."
+echo ""
+echo "To configure your network, run: mesh-network-gen"
+echo "For automated configuration: mesh-network-gen --auto --node NODE_NAME --eth0 INTERFACE --eth1 INTERFACE --eth2 INTERFACE"
+echo "To check version: mesh-network-gen --version"
+echo "====================================================="
+
+exit 0 

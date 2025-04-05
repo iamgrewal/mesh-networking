@@ -1,0 +1,23 @@
+# Build artifacts
+*.deb
+*.bak
+*.log
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Cursor rules
+.cursorrules 
