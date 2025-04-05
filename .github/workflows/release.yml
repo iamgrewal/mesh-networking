@@ -95,7 +95,7 @@ jobs:
           
           # Ensure Depends includes required packages
           if ! grep -q "openvswitch-switch" build/mesh-networking/DEBIAN/control; then
-            sed -i 's/^Depends:/Depends: openvswitch-switch, frr, iproute2,/' build/mesh-networking/DEBIAN/control
+            sed -i 's/^Depends:/Depends: openvswitch-switch, frr, iproute2/' build/mesh-networking/DEBIAN/control
           fi
 
       - name: Inject version into mesh-network-gen script
