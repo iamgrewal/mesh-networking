@@ -235,6 +235,56 @@ EOF
     else
         log "WARN" "FRR daemons file not found. Please enable fabricd manually."
     fi
+    
+    # Symlink FRR config
+    if [ -f "$output_file" ]; then
+        backup_frr="/etc/frr/frr.conf.$(date +%Y%m%d%H%M%S).bak"
+        if [ -f "/etc/frr/frr.conf" ]; then
+            cp /etc/frr/frr.conf "$backup_frr"
+            log "INFO" "Created backup of existing FRR config at $backup_frr"
+        fi
+        
+        ln -sf "$output_file" /etc/frr/frr.conf
+        log "INFO" "Linked FRR config: $output_file → /etc/frr/frr.conf"
+        
+        # Restart FRR service
+        if systemctl restart frr.service; then
+            log "INFO" "FRR service restarted"
+        else
+            log "ERROR" "FRR restart failed"
+        fi
+    fi
+}
+
+# Update /etc/hosts with cluster mesh entries
+update_hosts_file() {
+    log "INFO" "Updating /etc/hosts with cluster mesh entries..."
+    
+    # Check if entries already exist
+    if grep -q "# Proxmox Mesh Cluster Nodes" /etc/hosts; then
+        log "WARN" "Mesh cluster entries already exist in /etc/hosts"
+        read -rp "Do you want to update them anyway? (y/n): " update_anyway
+        if [[ ! "$update_anyway" =~ ^[Yy]$ ]]; then
+            log "INFO" "Skipping /etc/hosts update"
+            return
+        fi
+        
+        # Remove existing entries
+        sed -i '/# Proxmox Mesh Cluster Nodes/,/^$/d' /etc/hosts
+        log "INFO" "Removed existing mesh cluster entries from /etc/hosts"
+    fi
+    
+    # Add new entries
+    cat <<EOF >> /etc/hosts
+
+# Proxmox Mesh Cluster Nodes
+192.168.51.90 pve
+192.168.51.91 pve1
+192.168.51.92 pve2
+192.168.51.93 pve3
+192.168.51.94 pve4
+EOF
+    log "INFO" "Mesh IP-to-hostname mappings added to /etc/hosts"
 }
 
 # Main script
@@ -467,6 +517,12 @@ else
     log "INFO" "Configuration saved but not applied. To apply later:"
     log "INFO" "  ln -sf $output_file /etc/network/interfaces"
     log "INFO" "  ifreload -a"
+fi
+
+# Ask if user wants to update /etc/hosts
+read -rp "Do you want to update /etc/hosts with cluster mesh entries? (y/n): " update_hosts
+if [[ "$update_hosts" =~ ^[Yy]$ ]]; then
+    update_hosts_file
 fi
 
 log "INFO" "Script completed successfully"
