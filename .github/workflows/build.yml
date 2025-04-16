@@ -22,6 +22,9 @@ jobs:
 
   build-deb:
     runs-on: ubuntu-latest
+    env:
+      PACKAGE_NAME: mesh-networking
+      BUILD_DIR: build/mesh-networking
 
     steps:
       - name: Checkout repository
@@ -29,104 +32,115 @@ jobs:
 
       - name: Set up build environment
         run: |
-          sudo apt-get update
+          # Install required packages with proper flags
+          sudo apt-get update -y
           sudo apt-get install -y dpkg-dev fakeroot lintian shellcheck
+          
+          # Create build directory structure
+          mkdir -p ${{ env.BUILD_DIR }}/{DEBIAN,usr/local/bin,etc/{frr,systemd/system,logrotate.d},usr/share/${{ env.PACKAGE_NAME }}}
 
-      - name: Prepare package folder
+      - name: Copy package files
         run: |
-          mkdir -p build/mesh-networking/DEBIAN
-          mkdir -p build/mesh-networking/usr/local/bin
-          mkdir -p build/mesh-networking/etc/frr
-          mkdir -p build/mesh-networking/etc/systemd/system
-          mkdir -p build/mesh-networking/usr/share/mesh-networking
-          mkdir -p build/mesh-networking/etc/logrotate.d
-
-          # Copy control scripts
-          cp mesh-networking-deb/DEBIAN/control build/mesh-networking/DEBIAN/
-          cp mesh-networking-deb/DEBIAN/postinst build/mesh-networking/DEBIAN/ 2>/dev/null || touch build/mesh-networking/DEBIAN/postinst
-          cp mesh-networking-deb/DEBIAN/prerm build/mesh-networking/DEBIAN/ 2>/dev/null || touch build/mesh-networking/DEBIAN/prerm
-          chmod 755 build/mesh-networking/DEBIAN/{postinst,prerm}
+          # Copy control scripts with error handling
+          cp -v mesh-networking-deb/DEBIAN/control ${{ env.BUILD_DIR }}/DEBIAN/ || { echo "Error: Failed to copy control file"; exit 1; }
+          
+          # Copy postinst/prerm with fallback
+          cp -v mesh-networking-deb/DEBIAN/postinst ${{ env.BUILD_DIR }}/DEBIAN/ 2>/dev/null || touch ${{ env.BUILD_DIR }}/DEBIAN/postinst
+          cp -v mesh-networking-deb/DEBIAN/prerm ${{ env.BUILD_DIR }}/DEBIAN/ 2>/dev/null || touch ${{ env.BUILD_DIR }}/DEBIAN/prerm
+          
+          # Set permissions
+          chmod 755 ${{ env.BUILD_DIR }}/DEBIAN/{postinst,prerm}
 
           # Copy main script
-          cp mesh-networking-deb/usr/local/bin/mesh-network-gen build/mesh-networking/usr/local/bin/
-          chmod 755 build/mesh-networking/usr/local/bin/mesh-network-gen
+          cp -v mesh-networking-deb/usr/local/bin/mesh-network-gen ${{ env.BUILD_DIR }}/usr/local/bin/ || { echo "Error: Failed to copy main script"; exit 1; }
+          chmod 755 ${{ env.BUILD_DIR }}/usr/local/bin/mesh-network-gen
 
           # Copy systemd service
-          cp mesh-networking-deb/etc/systemd/system/mesh-networking.service build/mesh-networking/etc/systemd/system/
+          cp -v mesh-networking-deb/etc/systemd/system/mesh-networking.service ${{ env.BUILD_DIR }}/etc/systemd/system/ || { echo "Error: Failed to copy systemd service"; exit 1; }
 
-          # Copy README and other documentation
-          cp mesh-networking-deb/usr/share/mesh-networking/README.md build/mesh-networking/usr/share/mesh-networking/ 2>/dev/null || true
-          cp mesh-networking-deb/CHANGELOG.md build/mesh-networking/usr/share/mesh-networking/ 2>/dev/null || true
+          # Copy documentation with fallback
+          cp -v mesh-networking-deb/usr/share/mesh-networking/README.md ${{ env.BUILD_DIR }}/usr/share/${{ env.PACKAGE_NAME }}/ 2>/dev/null || true
+          cp -v mesh-networking-deb/CHANGELOG.md ${{ env.BUILD_DIR }}/usr/share/${{ env.PACKAGE_NAME }}/ 2>/dev/null || true
 
           # Create logrotate config
-          echo "/var/log/mesh-network-gen.log {" > build/mesh-networking/etc/logrotate.d/mesh-networking
-          echo "    weekly" >> build/mesh-networking/etc/logrotate.d/mesh-networking
-          echo "    rotate 4" >> build/mesh-networking/etc/logrotate.d/mesh-networking
-          echo "    compress" >> build/mesh-networking/etc/logrotate.d/mesh-networking
-          echo "    delaycompress" >> build/mesh-networking/etc/logrotate.d/mesh-networking
-          echo "    missingok" >> build/mesh-networking/etc/logrotate.d/mesh-networking
-          echo "    notifempty" >> build/mesh-networking/etc/logrotate.d/mesh-networking
-          echo "    create 644 root root" >> build/mesh-networking/etc/logrotate.d/mesh-networking
-          echo "}" >> build/mesh-networking/etc/logrotate.d/mesh-networking
+          echo "/var/log/mesh-network-gen.log {" > ${{ env.BUILD_DIR }}/etc/logrotate.d/mesh-networking
+          echo "    weekly" >> ${{ env.BUILD_DIR }}/etc/logrotate.d/mesh-networking
+          echo "    rotate 4" >> ${{ env.BUILD_DIR }}/etc/logrotate.d/mesh-networking
+          echo "    compress" >> ${{ env.BUILD_DIR }}/etc/logrotate.d/mesh-networking
+          echo "    delaycompress" >> ${{ env.BUILD_DIR }}/etc/logrotate.d/mesh-networking
+          echo "    missingok" >> ${{ env.BUILD_DIR }}/etc/logrotate.d/mesh-networking
+          echo "    notifempty" >> ${{ env.BUILD_DIR }}/etc/logrotate.d/mesh-networking
+          echo "    create 644 root root" >> ${{ env.BUILD_DIR }}/etc/logrotate.d/mesh-networking
+          echo "}" >> ${{ env.BUILD_DIR }}/etc/logrotate.d/mesh-networking
 
       - name: Set version from tag or default
         id: version
         run: |
-          VERSION=${GITHUB_REF##*/}
-          if [[ "$VERSION" == "refs/tags/"* ]]; then
-            VERSION=${VERSION#refs/tags/}
+          # Extract version from tag or use timestamp
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            # Remove 'v' prefix if present
+            VERSION=${VERSION#v}
           else
             VERSION="dev-$(date +%Y%m%d%H%M)"
           fi
-          # Remove 'v' prefix if present (e.g., v1.0.0 -> 1.0.0)
-          VERSION=${VERSION#v}
-          # Using new environment file syntax
+          
+          # Set version in environment
           echo "version=${VERSION}" >> "${GITHUB_ENV}"
+          echo "Package version: ${VERSION}"
 
-      - name: Update control file version
+      - name: Update control file
         run: |
-          sed -i "s/^Version:.*/Version: ${{ env.version }}/" build/mesh-networking/DEBIAN/control
+          # Update version in control file
+          sed -i "s/^Version:.*/Version: ${{ env.version }}/" ${{ env.BUILD_DIR }}/DEBIAN/control
           
           # Add Pre-Depends if not present
-          if ! grep -q "^Pre-Depends:" build/mesh-networking/DEBIAN/control; then
-            sed -i '/^Depends:/i Pre-Depends: bash, systemd' build/mesh-networking/DEBIAN/control
+          if ! grep -q "^Pre-Depends:" ${{ env.BUILD_DIR }}/DEBIAN/control; then
+            sed -i '/^Depends:/i Pre-Depends: bash, systemd' ${{ env.BUILD_DIR }}/DEBIAN/control
           fi
           
           # Ensure Depends includes required packages
-          if ! grep -q "openvswitch-switch" build/mesh-networking/DEBIAN/control; then
-            sed -i 's/^Depends:/Depends: openvswitch-switch, frr, iproute2/' build/mesh-networking/DEBIAN/control
+          if ! grep -q "openvswitch-switch" ${{ env.BUILD_DIR }}/DEBIAN/control; then
+            sed -i 's/^Depends:/Depends: openvswitch-switch, frr, iproute2/' ${{ env.BUILD_DIR }}/DEBIAN/control
           fi
 
-      - name: Inject version into mesh-network-gen script
+      - name: Inject version into script
         run: |
-          sed -i "s/VERSION=\${VERSION:-unknown}/VERSION=${{ env.version }}/" build/mesh-networking/usr/local/bin/mesh-network-gen
+          # Update version in main script
+          sed -i "s/VERSION=\${VERSION:-unknown}/VERSION=${{ env.version }}/" ${{ env.BUILD_DIR }}/usr/local/bin/mesh-network-gen
+          
+          # Create VERSION metadata file
+          echo "${{ env.version }}" > ${{ env.BUILD_DIR }}/usr/share/${{ env.PACKAGE_NAME }}/VERSION
 
-      - name: Create VERSION metadata file
+      - name: Validate package
         run: |
-          echo "${{ env.version }}" > build/mesh-networking/usr/share/mesh-networking/VERSION
-
-      - name: Lint mesh-network-gen with shellcheck
-        run: |
-          shellcheck build/mesh-networking/usr/local/bin/mesh-network-gen || true
-
-      - name: Validate package with lintian
-        run: |
-          lintian build/mesh-networking || true
+          # Lint script with shellcheck
+          shellcheck ${{ env.BUILD_DIR }}/usr/local/bin/mesh-network-gen || echo "Shellcheck found issues but continuing"
+          
+          # Validate package with lintian
+          lintian ${{ env.BUILD_DIR }} || echo "Lintian found issues but continuing"
 
       - name: Build .deb package
         run: |
-          dpkg-deb --build build/mesh-networking
-          mv build/mesh-networking.deb mesh-networking_${{ env.version }}_all.deb
-          # Create a symlink for the latest version
-          ln -sf mesh-networking_${{ env.version }}_all.deb mesh-networking_all.deb
+          # Build the package
+          dpkg-deb --build ${{ env.BUILD_DIR }}
+          
+          # Rename with version
+          mv ${{ env.BUILD_DIR }}.deb ${{ env.PACKAGE_NAME }}_${{ env.version }}_all.deb
+          
+          # Create symlink for latest version
+          ln -sf ${{ env.PACKAGE_NAME }}_${{ env.version }}_all.deb ${{ env.PACKAGE_NAME }}_all.deb
+          
+          # List the built package
+          ls -la *.deb
 
-      - name: Upload .deb to release (if applicable)
+      - name: Upload .deb to release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            mesh-networking_${{ env.version }}_all.deb
-            mesh-networking_all.deb
+            ${{ env.PACKAGE_NAME }}_${{ env.version }}_all.deb
+            ${{ env.PACKAGE_NAME }}_all.deb
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
           body: |
@@ -138,11 +152,11 @@ jobs:
             - FRR OpenFabric routing
             - Automated configuration tools
 
-      - name: (Optional) Commit .deb to releases folder
+      - name: Commit .deb to releases folder
         if: github.event_name != 'release'
         run: |
           mkdir -p releases
-          cp mesh-networking_${{ env.version }}_all.deb releases/
+          cp ${{ env.PACKAGE_NAME }}_${{ env.version }}_all.deb releases/
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
           git add releases/
